@@ -1,5 +1,4 @@
 import sys
-import numpy as np
 
 def read_input():
     """
@@ -17,79 +16,72 @@ def read_input():
     
     return n, Q, D, q
 
-def solve_cvrp_greedy_np(n, Q, D, q):
+def solve_cvrp_greedy(n, Q, D, q):
     """
-    Optimized greedy CVRP solver using NumPy for vectorized distance computations.
+    Solves the Capacitated Vehicle Routing Problem using a greedy approach.
+    Returns a list of routes where each route starts and ends at the depot.
     
-    Approach:
-      - Convert the distance matrix and demand vector to NumPy arrays.
-      - For each route, while there are unvisited customers, compute the distances
-        from the current node to all unvisited candidates at once.
-      - Use vectorized operations to filter feasible candidates (i.e., those that do not
-        exceed capacity) and select the one with the minimum distance.
-      - Update the route and capacity, and repeat until no feasible candidate remains.
+    Updated approach:
+      - Start at the depot (node 0).
+      - From the current position, find the nearest unvisited customer 
+        whose demand does not exceed the remaining capacity.
+      - If no such customer exists, end the current route (return to depot)
+        and start a new route.
     """
-    # Convert D and q to NumPy arrays for fast vectorized operations.
-    D_np = np.array(D)
-    q_np = np.array(q)
-    
     routes = []
     unvisited = set(range(1, n))  # Customers to visit (excluding depot)
     
     while unvisited:
-        current_route = [0]  # Start at depot (node 0)
+        current_route = [0]  # Start at the depot
         current_load = 0
         current_position = 0
         
         while True:
-            if not unvisited:
+            best_candidate = None
+            best_distance = float('inf')
+            # Find the nearest feasible customer from the current position
+            for customer in unvisited:
+                if current_load + q[customer] <= Q:
+                    dist = D[current_position][customer]
+                    if dist < best_distance:
+                        best_distance = dist
+                        best_candidate = customer
+            # If no feasible customer exists, end this route
+            if best_candidate is None:
                 break
-            # Convert unvisited set to NumPy array of candidate indices.
-            candidates = np.array(list(unvisited))
-            # Get distances from current_position to all candidates.
-            distances = D_np[current_position, candidates]
-            # Determine which candidates are feasible with respect to capacity.
-            feasible_mask = (current_load + q_np[candidates] <= Q)
-            if not np.any(feasible_mask):
-                break  # No feasible candidate; end current route.
-            # Among feasible candidates, choose the one with minimum distance.
-            feasible_candidates = candidates[feasible_mask]
-            feasible_distances = distances[feasible_mask]
-            best_index = np.argmin(feasible_distances)
-            best_candidate = int(feasible_candidates[best_index])
-            
-            # Update route, capacity, and current position.
+            # Otherwise, add the customer to the route and update state
             current_route.append(best_candidate)
-            current_load += q_np[best_candidate]
+            current_load += q[best_candidate]
             unvisited.remove(best_candidate)
             current_position = best_candidate
         
-        current_route.append(0)  # Return to depot.
+        current_route.append(0)  # End at the depot
         routes.append(current_route)
     
     return routes
 
 def check(routes, n, Q, D, q):
     """
-    Validates the solution to ensure:
-      - Each route starts and ends at the depot (node 0).
-      - The total demand on each route does not exceed the vehicle capacity.
+    Validates the solution to ensure all constraints are satisfied:
+      - Each route must start and end at the depot.
+      - The total demand of each route does not exceed vehicle capacity.
       - Each customer (nodes 1 to n-1) is visited exactly once.
     """
     visited = set()
     for route in routes:
-        # Calculate total demand for the route (ignore depot 0).
+        # Check capacity constraint (ignoring depot 0)
         total_demand = sum(q[i] for i in route if i != 0)
         if total_demand > Q:
             return False
         
-        # Check route structure: must start and end at depot and contain at least one customer.
+        # Check that the route starts and ends at the depot and has at least one customer
         if route[0] != 0 or route[-1] != 0 or len(route) < 3:
             return False
         
+        # Add only customer nodes (exclude depot)
         visited.update(i for i in route if i != 0)
     
-    # Ensure every customer (1 to n-1) is visited exactly once.
+    # Ensure all customers are visited exactly once
     if visited != set(range(1, n)):
         return False
     
@@ -97,7 +89,7 @@ def check(routes, n, Q, D, q):
 
 def main():
     n, Q, D, q = read_input()
-    routes = solve_cvrp_greedy_np(n, Q, D, q)
+    routes = solve_cvrp_greedy(n, Q, D, q)
     
     if check(routes, n, Q, D, q):
         for route in routes:
