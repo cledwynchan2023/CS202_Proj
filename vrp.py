@@ -32,20 +32,20 @@ def merge_routes(route_i, route_j, i, j):
     
     Each route is assumed to start and end with depot (0).
     """
-    # Four possible cases:
-    # Case 1: i is at the end of route_i and j is at the beginning of route_j.
+
+    # Case 1: i is at the end of route_i and j is at the beginning of route_j
     if route_i[-2] == i and route_j[1] == j:
         return route_i[:-1] + route_j[1:]
-    # Case 2: i is at the beginning of route_i and j is at the end of route_j.
+    # Case 2: i is at the beginning of route_i and j is at the end of route_j
     if route_i[1] == i and route_j[-2] == j:
         return route_j[:-1] + route_i[1:]
-    # Case 3: i is at the beginning of route_i and j is at the beginning of route_j.
-    # Reverse route_i so that i becomes the end.
+    # Case 3: i is at the beginning of route_i and j is at the beginning of route_j
+    # Reverse route_i so that i becomes the end
     if route_i[1] == i and route_j[1] == j:
         rev_i = list(reversed(route_i))
         # Now rev_i[-2] == i
         return rev_i[:-1] + route_j[1:]
-    # Case 4: i is at the end of route_i and j is at the end of route_j.
+    # Case 4: i is at the end of route_i and j is at the end of route_j
     # Reverse route_j so that j becomes the beginning.
     if route_i[-2] == i and route_j[-2] == j:
         rev_j = list(reversed(route_j))
@@ -59,21 +59,21 @@ def solve_cvrp_clarke_wright(n, Q, D, q):
     Returns a list of routes (each route is a list of nodes starting and ending with depot 0).
     """
     # Initialize: each customer (node 1 to n-1) gets its own route.
-    # (Assume depot is node 0.)
+
     routes = []
     route_demand = []
-    route_of = [None] * n  # route_of[i] = index of the route that customer i belongs to.
+    route_of = [None] * n  # route_of[i] = index of the route that customer i belongs to
     
     for i in range(1, n):
         routes.append([0, i, 0])
         route_demand.append(q[i])
         route_of[i] = len(routes) - 1
 
-    # Compute savings for every pair of distinct customers (i, j) with i < j.
+    # compute savings for every pair of distinct customers (i, j) with i < j
     savings_list = []
     for i in range(1, n):
         for j in range(i+1, n):
-            # Savings: distance from depot to i plus depot to j minus distance from i to j.
+            # Savings: distance from depot to i plus depot to j minus distance from i to j
             saving = D[0][i] + D[0][j] - D[i][j]
             savings_list.append((saving, i, j))
     
@@ -83,35 +83,35 @@ def solve_cvrp_clarke_wright(n, Q, D, q):
     for saving, i, j in savings_list:
         route_i_idx = route_of[i]
         route_j_idx = route_of[j]
-        # If either customer has been merged already (route set to None) or they are in same route, skip.
+        # If either customer has been merged already (route set to None) or they are in same route, skip
         if route_i_idx is None or route_j_idx is None or route_i_idx == route_j_idx:
             continue
         r_i = routes[route_i_idx]
         r_j = routes[route_j_idx]
-        # Attempt to merge the routes using the flexible merge function.
+        # Attempt to merge the routes using the flexible merge function
         merged = merge_routes(r_i, r_j, i, j)
         if merged is None:
             continue
-        # Check capacity feasibility.
+        # Check capacity feasibility
         if route_demand[route_i_idx] + route_demand[route_j_idx] > Q:
             continue
-        # Merge is feasible; update the merged route.
+        # Merge is feasible; update the merged route
         new_demand = route_demand[route_i_idx] + route_demand[route_j_idx]
         
-        # Choose new route index as route_i_idx.
+        # Choose new route index as route_i_idx
         routes[route_i_idx] = merged
         route_demand[route_i_idx] = new_demand
         
-        # Mark route_j_idx as merged.
+        # Mark route_j_idx as merged
         routes[route_j_idx] = None
         route_demand[route_j_idx] = 0
         
-        # Update route_of for all customers in the merged route.
+        # Update route_of for all customers in the merged route
         for customer in merged:
             if customer != 0:
                 route_of[customer] = route_i_idx
     
-    # Filter out merged (None) routes.
+    # Filter out merged (None) routes
     final_routes = [r for r in routes if r is not None]
     return final_routes
 
