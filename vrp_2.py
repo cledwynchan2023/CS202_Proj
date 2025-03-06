@@ -35,7 +35,7 @@ def solve_cvrp(n, Q, D, q):
     start = 0
     while len(not_visited) != 0:
         nearest_station = min((x for x in not_visited), key=lambda x: D[start][x])
-        print(nearest_station)
+        # print(nearest_station)
         if current_capacity + q[nearest_station] <= Q:
             routes[routes_idx].append(nearest_station)
             not_visited.remove(nearest_station)
@@ -46,6 +46,7 @@ def solve_cvrp(n, Q, D, q):
             routes_idx += 1
             routes.append([0])
             current_capacity = 0
+            start = 0
 
     routes[routes_idx].append(0)
     return routes
