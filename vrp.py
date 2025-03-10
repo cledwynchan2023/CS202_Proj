@@ -1,5 +1,7 @@
 import sys
 import math
+import random
+import copy
 
 def read_input():
     """
@@ -20,83 +22,161 @@ def read_input():
     
     return n, Q, D_full, q
 
-def solve_cvrp_clarke_wright(n, Q, D_full, q):
+def convert_to_lower_triangular(D_full):
     """
-    Solves the CVRP using the Clarke–Wright Savings algorithm.
-    
-    Steps:
-      1. Initialize: each customer i (for i=1..n-1) gets its own route [0, i, 0].
-      2. Compute savings for each pair of customers (i, j) with i < j:
-         S(i, j) = D_full[0][i] + D_full[0][j] - D_full[i][j].
-      3. Process savings in descending order. For each pair (i, j):
-         - Let route_i be the route containing i and route_j be the route containing j.
-         - If route_i ≠ route_j, and if i is at the end of route_i and j is at the beginning of route_j (or vice versa),
-           and the total demand of the merged route is ≤ Q, then merge them.
-      4. Return the nonempty routes.
+    Given a full symmetric matrix, returns the lower-triangular matrix.
+    Each row i in the lower-triangular matrix contains the first (i+1) elements of D_full[i].
     """
-    # Initialize each customer in its own route.
+    n = len(D_full)
+    L = [D_full[i][:i+1] for i in range(n)]
+    return L
+
+def get_distance(i, j, L):
+    """
+    Returns the distance between nodes i and j using the lower triangular matrix L.
+    Since the distance matrix is symmetric, if i < j then the distance is stored in L[j][i].
+    """
+    if i >= j:
+        return L[i][j]
+    else:
+        return L[j][i]
+
+def solve_cvrp_greedy(n, Q, L, q):
+    """
+    Greedy CVRP solver using the lower-triangular matrix L.
+    Constructs routes starting from the depot (node 0) by repeatedly selecting
+    the nearest unvisited customer whose demand fits the remaining capacity.
+    """
     routes = []
-    route_id = {}  # Maps each customer to its route index.
-    route_demand = []
+    unvisited = set(range(1, n))  # Customers (exclude depot)
     
-    for i in range(1, n):
-        route = [0, i, 0]
-        routes.append(route)
-        route_id[i] = len(routes) - 1
-        route_demand.append(q[i])
-    
-    # Compute savings for every pair (i, j) with i < j.
-    savings = []
-    for i in range(1, n):
-        for j in range(i+1, n):
-            saving = D_full[0][i] + D_full[0][j] - D_full[i][j]
-            savings.append((saving, i, j))
-    savings.sort(reverse=True, key=lambda x: x[0])
-    
-    # Process savings list.
-    for saving, i, j in savings:
-        r_i = route_id.get(i)
-        r_j = route_id.get(j)
-        # Skip if either customer has been merged into an empty route or they are in the same route.
-        if r_i is None or r_j is None or r_i == r_j:
-            continue
-        route_i = routes[r_i]
-        route_j = routes[r_j]
-        # Case 1: if i is the last customer in route_i and j is the first customer in route_j.
-        if route_i[-2] == i and route_j[1] == j:
-            if route_demand[r_i] + route_demand[r_j] <= Q:
-                new_route = route_i[:-1] + route_j[1:]
-                routes[r_i] = new_route
-                route_demand[r_i] += route_demand[r_j]
-                for cust in route_j:
-                    if cust != 0:
-                        route_id[cust] = r_i
-                routes[r_j] = []
-                route_demand[r_j] = 0
-                route_id[j] = r_i
-        # Case 2: if j is the last customer in route_j and i is the first customer in route_i.
-        elif route_j[-2] == j and route_i[1] == i:
-            if route_demand[r_i] + route_demand[r_j] <= Q:
-                new_route = route_j[:-1] + route_i[1:]
-                routes[r_j] = new_route
-                route_demand[r_j] += route_demand[r_i]
-                for cust in route_i:
-                    if cust != 0:
-                        route_id[cust] = r_j
-                routes[r_i] = []
-                route_demand[r_i] = 0
-                route_id[i] = r_j
-    
-    # Filter out empty routes.
-    final_routes = [r for r in routes if r]
-    return final_routes
+    while unvisited:
+        current_route = [0]  # Start at depot
+        current_load = 0
+        current_position = 0
+        
+        while True:
+            best_candidate = None
+            best_distance = float('inf')
+            for customer in unvisited:
+                if current_load + q[customer] <= Q:
+                    dist = get_distance(current_position, customer, L)
+                    if dist < best_distance:
+                        best_distance = dist
+                        best_candidate = customer
+            if best_candidate is None:
+                break  # No feasible candidate; finish this route.
+            current_route.append(best_candidate)
+            current_load += q[best_candidate]
+            unvisited.remove(best_candidate)
+            current_position = best_candidate
+        
+        # Only add route if at least one customer was added.
+        if len(current_route) > 1:
+            if current_route[-1] != 0:
+                current_route.append(0)
+            routes.append(current_route)
+        else:
+            break
+    return routes
+
+def route_cost(route, D_full):
+    """Returns the total cost/distance of a single route."""
+    return sum(D_full[route[i]][route[i+1]] for i in range(len(route)-1))
 
 def total_distance(routes, D_full):
-    total = 0
-    for route in routes:
-        for i in range(len(route) - 1):
-            total += D_full[route[i]][route[i+1]]
-    return total
+    """Returns the total distance of the entire solution."""
+    return sum(route_cost(route, D_full) for route in routes)
+
+def two_opt(route, D_full):
+    """
+    Applies the 2-opt heuristic to a single route.
+    Returns an improved route if an improvement is found; otherwise returns the original route.
+    """
+    best_route = route[:]
+    best_cost = route_cost(best_route, D_full)
+    improved = True
+    while improved:
+        improved = False
+        for i in range(1, len(best_route) - 2):
+            for j in range(i+1, len(best_route) - 1):
+                new_route = best_route[:i] + best_route[i:j+1][::-1] + best_route[j+1:]
+                new_cost = route_cost(new_route, D_full)
+                if new_cost < best_cost:
+                    best_route = new_route
+                    best_cost = new_cost
+                    improved = True
+        route = best_route
+    return best_route
+
+def intra_route_improvement(solution, D_full):
+    """
+    Applies 2-opt improvement on each route in the solution.
+    """
+    new_solution = []
+    for route in solution:
+        new_solution.append(two_opt(route, D_full))
+    return new_solution
+
+def inter_route_relocate(solution, D_full, Q, q):
+    """
+    Tries to improve the solution by relocating a customer from one route to another.
+    Iterates over each customer (not depot) in each route and tries to reinsert it
+    into another route at the best feasible position (if it reduces the overall distance).
+    Returns the new solution if an improvement is found; otherwise returns the original solution.
+    """
+    best_solution = copy.deepcopy(solution)
+    best_cost = total_distance(best_solution, D_full)
+    for r1 in range(len(solution)):
+        for pos in range(1, len(solution[r1]) - 1):
+            customer = solution[r1][pos]
+            # Remove customer from route r1 temporarily.
+            new_route1 = solution[r1][:pos] + solution[r1][pos+1:]
+            # Check if route r1 is still valid after removal.
+            if len(new_route1) < 3:
+                continue
+            for r2 in range(len(solution)):
+                if r1 == r2:
+                    continue
+                # Check capacity feasibility:
+                if sum(q[i] for i in new_route1 if i != 0) > Q:
+                    continue
+                if sum(q[i] for i in solution[r2] if i != 0) + q[customer] > Q:
+                    continue
+                # Try inserting customer in route r2 at every possible position.
+                for pos2 in range(1, len(solution[r2])):
+                    new_route2 = solution[r2][:pos2] + [customer] + solution[r2][pos2:]
+                    # Create a candidate solution.
+                    candidate_solution = copy.deepcopy(solution)
+                    candidate_solution[r1] = new_route1
+                    candidate_solution[r2] = new_route2
+                    candidate_cost = total_distance(candidate_solution, D_full)
+                    if candidate_cost < best_cost:
+                        best_cost = candidate_cost
+                        best_solution = candidate_solution
+    return best_solution
+
+def local_search(solution, D_full, Q, q, max_iter=100):
+    """
+    Iteratively applies intra-route 2-opt improvements and inter-route relocate moves
+    until no further improvement is found or a maximum number of iterations is reached.
+    """
+    current_solution = copy.deepcopy(solution)
+    current_solution = intra_route_improvement(current_solution, D_full)
+    current_cost = total_distance(current_solution, D_full)
+    
+    for _ in range(max_iter):
+        # First try inter-route relocate moves.
+        new_solution = inter_route_relocate(current_solution, D_full, Q, q)
+        # Then improve each route with 2-opt.
+        new_solution = intra_route_improvement(new_solution, D_full)
+        new_cost = total_distance(new_solution, D_full)
+        if new_cost < current_cost:
+            current_solution = new_solution
+            current_cost = new_cost
+        else:
+            break
+    return current_solution
 
 def check(routes, n, Q, D_full, q):
     """
@@ -109,16 +189,22 @@ def check(routes, n, Q, D_full, q):
     for route in routes:
         if route[0] != 0 or route[-1] != 0 or len(route) < 3:
             return False
-        if sum(q[i] for i in route if i != 0) > Q:
+        total_demand = sum(q[i] for i in route if i != 0)
+        if total_demand > Q:
             return False
         visited.update(i for i in route if i != 0)
     return visited == set(range(1, n))
 
 def main():
     n, Q, D_full, q = read_input()
-    routes = solve_cvrp_clarke_wright(n, Q, D_full, q)
-    if check(routes, n, Q, D_full, q):
-        for route in routes:
+    # Build an initial solution using the greedy approach.
+    L = convert_to_lower_triangular(D_full)
+    initial_solution = solve_cvrp_greedy(n, Q, L, q)
+    # Improve the solution using a rigorous local search.
+    improved_solution = local_search(initial_solution, D_full, Q, q)
+    
+    if check(improved_solution, n, Q, D_full, q):
+        for route in improved_solution:
             print(" ".join(map(str, route)))
     else:
         print("Invalid solution", file=sys.stderr)
