@@ -88,59 +88,92 @@ def total_distance(routes, D_full):
 
 def neighbor(solution, Q, q):
     """
-    Generates a neighbor solution using a simple "relocate" move:
-      - Randomly select a route with at least one customer.
-      - Randomly remove one customer (not the depot) from that route.
-      - Attempt to reinsert that customer in a randomly chosen route (which can be the same)
-        at a random feasible position.
-    Returns a new solution (deep copy) that is feasible.
+    Generates a neighbor solution by applying one of two moves:
+    
+    1. Relocate Move: If there exists a route with >1 customer (length > 3),
+       remove a randomly chosen customer from such a route and try to insert it
+       into a (possibly different) route at a random feasible position.
+       If the removal makes a route empty ([0,0]), remove that route.
+       
+    2. Swap Move: Otherwise, pick two different routes (if possible) and swap one customer
+       from each route (excluding depots) if capacity constraints allow.
+       
+    The move is only accepted if the resulting solution remains feasible.
     """
     new_solution = copy.deepcopy(solution)
     
-    # Choose a route that has at least one customer.
-    candidate_routes = [i for i, route in enumerate(new_solution) if len(route) > 2]
-    if not candidate_routes:
-        return new_solution
+    # Identify routes that have more than one customer (i.e. at least two customers).
+    relocate_candidates = [i for i, route in enumerate(new_solution) if len(route) > 3]
     
-    r1 = random.choice(candidate_routes)
-    route1 = new_solution[r1]
-    # Remove a random customer from route1 (not the depot at index 0 or last index)
-    pos = random.randint(1, len(route1) - 2)
-    customer = route1.pop(pos)
+    # Decide move type: prefer relocate if available; otherwise try swap.
+    if relocate_candidates:
+        move_type = "relocate"
+    else:
+        if len(new_solution) < 2:
+            return new_solution
+        move_type = "swap"
     
-    # Try to insert the customer into a randomly chosen route.
-    insertion_done = False
-    route_indices = list(range(len(new_solution)))
-    random.shuffle(route_indices)
-    
-    for r2 in route_indices:
-        route2 = new_solution[r2]
-        # Try all possible insertion positions (between index 1 and len(route2))
-        for pos2 in range(1, len(route2)):
-            # Check capacity for route2.
+    if move_type == "relocate":
+        # Pick a route with more than one customer.
+        r1 = random.choice(relocate_candidates)
+        route1 = new_solution[r1]
+        # Remove a random customer from route1 (cannot be depot at index 0 or last index)
+        pos = random.randint(1, len(route1) - 2)
+        customer = route1.pop(pos)
+        # If route1 becomes empty (i.e. [0,0]), remove it.
+        if len(route1) < 3:
+            del new_solution[r1]
+        
+        insertion_done = False
+        route_indices = list(range(len(new_solution)))
+        random.shuffle(route_indices)
+        for r2 in route_indices:
+            route2 = new_solution[r2]
             current_capacity = sum(q[i] for i in route2 if i != 0)
             if current_capacity + q[customer] <= Q:
-                # Insert the customer at position pos2.
-                new_route = route2[:pos2] + [customer] + route2[pos2:]
-                # Temporarily update route2.
-                new_solution[r2] = new_route
-                insertion_done = True
+                possible_positions = list(range(1, len(route2)))
+                random.shuffle(possible_positions)
+                for pos2 in possible_positions:
+                    # Insert the customer and check if the move is feasible.
+                    new_route = route2[:pos2] + [customer] + route2[pos2:]
+                    # We don't need to fully re-check feasibility here since capacity is ensured.
+                    new_solution[r2] = new_route
+                    insertion_done = True
+                    break
+            if insertion_done:
                 break
-        if insertion_done:
-            break
-    
-    # If insertion wasn't possible in any route, put the customer back to original position.
-    if not insertion_done:
-        new_solution[r1].insert(pos, customer)
-    
+        if not insertion_done:
+            # If insertion into any route fails, put the customer back into its original route.
+            if r1 < len(new_solution):
+                new_solution[r1].insert(pos, customer)
+            else:
+                new_solution.append([0, customer, 0])
+    elif move_type == "swap":
+        if len(new_solution) < 2:
+            return new_solution
+        r1, r2 = random.sample(range(len(new_solution)), 2)
+        route1 = new_solution[r1]
+        route2 = new_solution[r2]
+        if len(route1) < 3 or len(route2) < 3:
+            return new_solution
+        pos1 = random.randint(1, len(route1) - 2)
+        pos2 = random.randint(1, len(route2) - 2)
+        customer1 = route1[pos1]
+        customer2 = route2[pos2]
+        demand_route1 = sum(q[i] for i in route1 if i != 0)
+        demand_route2 = sum(q[i] for i in route2 if i != 0)
+        if (demand_route1 - q[customer1] + q[customer2] <= Q) and (demand_route2 - q[customer2] + q[customer1] <= Q):
+            route1[pos1], route2[pos2] = customer2, customer1
+            new_solution[r1] = route1
+            new_solution[r2] = route2
     return new_solution
 
 def simulated_annealing(initial_solution, D_full, Q, q, max_iterations=10000, initial_temp=1000, cooling_rate=0.995):
     """
     Improves the initial CVRP solution using Simulated Annealing.
-    At each iteration, a neighbor solution is generated via a relocate move.
-    The move is accepted if it improves the solution or with a probability
-    proportional to exp(-delta/temperature). Temperature is decreased over iterations.
+    At each iteration, a neighbor solution is generated.
+    The move is accepted if it improves the total distance or with a probability
+    based on the temperature. Temperature is decreased over iterations.
     """
     current_solution = copy.deepcopy(initial_solution)
     best_solution = copy.deepcopy(initial_solution)
@@ -168,9 +201,9 @@ def simulated_annealing(initial_solution, D_full, Q, q, max_iterations=10000, in
 
 def check(routes, n, Q, D_full, q):
     """
-    Validates the solution:
-      - Each route starts and ends at depot (node 0).
-      - Total demand per route does not exceed Q.
+    Validates that:
+      - Each route starts and ends at the depot (node 0).
+      - The total demand on each route does not exceed Q.
       - Every customer (nodes 1 to n-1) is visited exactly once.
     """
     visited = set()
@@ -187,8 +220,9 @@ def check(routes, n, Q, D_full, q):
 
 def main():
     n, Q, D_full, q = read_input()
-    # Use the lower-triangular matrix for the greedy solution.
+    # Convert the full distance matrix to a lower-triangular matrix.
     L = convert_to_lower_triangular(D_full)
+    # Build an initial solution using the greedy algorithm.
     initial_solution = solve_cvrp_greedy(n, Q, L, q)
     # Improve the solution using Simulated Annealing.
     improved_solution = simulated_annealing(initial_solution, D_full, Q, q)
