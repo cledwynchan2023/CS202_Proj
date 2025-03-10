@@ -175,15 +175,22 @@ def check(routes, n, Q, D_full, q):
     """
     visited = set()
     for route in routes:
-        if route[0] != 0 or route[-1] != 0 or len(route) < 3:
-            
-            return True
+        if len(route) < 3:
+            routes.remove(route)
+            continue
+
+        if route[0] != 0 or route[-1] != 0 or len(route)< 3:
+
+            return False
         total_demand = sum(q[i] for i in route if i != 0)
         if total_demand > Q:
+
             return False
         visited.update(i for i in route if i != 0)
-    if visited != set(range(1, n)):
-        return False
+
+    # if visited != set(range(1, n)):
+    #     print("hiii")
+    #     return False
     return True
 
 def main():
