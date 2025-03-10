@@ -1,4 +1,7 @@
 import sys
+import math
+import random
+import copy
 
 def read_input():
     """
@@ -40,12 +43,12 @@ def get_distance(i, j, L):
 
 def solve_cvrp_greedy(n, Q, L, q):
     """
-    Solves the CVRP using a greedy approach with the lower-triangular matrix L.
-    For each route, starting from the depot (node 0), the algorithm selects the nearest unvisited
-    customer (whose demand fits in the remaining capacity) using vectorized distance lookups.
+    Greedy CVRP solver using the lower-triangular matrix L.
+    Constructs routes starting from the depot (node 0) by repeatedly selecting
+    the nearest unvisited customer whose demand fits the remaining capacity.
     """
     routes = []
-    unvisited = set(range(1, n))  # Customers to visit (excluding depot)
+    unvisited = set(range(1, n))  # Customers (exclude depot)
     
     while unvisited:
         current_route = [0]  # Start at depot
@@ -55,7 +58,6 @@ def solve_cvrp_greedy(n, Q, L, q):
         while True:
             best_candidate = None
             best_distance = float('inf')
-            # Iterate over unvisited customers and find the nearest one that fits the capacity.
             for customer in unvisited:
                 if current_load + q[customer] <= Q:
                     dist = get_distance(current_position, customer, L)
@@ -63,8 +65,7 @@ def solve_cvrp_greedy(n, Q, L, q):
                         best_distance = dist
                         best_candidate = customer
             if best_candidate is None:
-                break  # No feasible customer; finish the current route.
-            # Update route and capacity.
+                break  # No feasible candidate; finish this route.
             current_route.append(best_candidate)
             current_load += q[best_candidate]
             unvisited.remove(best_candidate)
@@ -75,19 +76,109 @@ def solve_cvrp_greedy(n, Q, L, q):
     
     return routes
 
+def total_distance(routes, D_full):
+    """
+    Computes the total travel distance of the solution using the full distance matrix.
+    """
+    total = 0
+    for route in routes:
+        for i in range(len(route)-1):
+            total += D_full[route[i]][route[i+1]]
+    return total
+
+def neighbor(solution, Q, q):
+    """
+    Generates a neighbor solution using a simple "relocate" move:
+      - Randomly select a route with at least one customer.
+      - Randomly remove one customer (not the depot) from that route.
+      - Attempt to reinsert that customer in a randomly chosen route (which can be the same)
+        at a random feasible position.
+    Returns a new solution (deep copy) that is feasible.
+    """
+    new_solution = copy.deepcopy(solution)
+    
+    # Choose a route that has at least one customer.
+    candidate_routes = [i for i, route in enumerate(new_solution) if len(route) > 2]
+    if not candidate_routes:
+        return new_solution
+    
+    r1 = random.choice(candidate_routes)
+    route1 = new_solution[r1]
+    # Remove a random customer from route1 (not the depot at index 0 or last index)
+    pos = random.randint(1, len(route1) - 2)
+    customer = route1.pop(pos)
+    
+    # Try to insert the customer into a randomly chosen route.
+    insertion_done = False
+    route_indices = list(range(len(new_solution)))
+    random.shuffle(route_indices)
+    
+    for r2 in route_indices:
+        route2 = new_solution[r2]
+        # Try all possible insertion positions (between index 1 and len(route2))
+        for pos2 in range(1, len(route2)):
+            # Check capacity for route2.
+            current_capacity = sum(q[i] for i in route2 if i != 0)
+            if current_capacity + q[customer] <= Q:
+                # Insert the customer at position pos2.
+                new_route = route2[:pos2] + [customer] + route2[pos2:]
+                # Temporarily update route2.
+                new_solution[r2] = new_route
+                insertion_done = True
+                break
+        if insertion_done:
+            break
+    
+    # If insertion wasn't possible in any route, put the customer back to original position.
+    if not insertion_done:
+        new_solution[r1].insert(pos, customer)
+    
+    return new_solution
+
+def simulated_annealing(initial_solution, D_full, Q, q, max_iterations=10000, initial_temp=1000, cooling_rate=0.995):
+    """
+    Improves the initial CVRP solution using Simulated Annealing.
+    At each iteration, a neighbor solution is generated via a relocate move.
+    The move is accepted if it improves the solution or with a probability
+    proportional to exp(-delta/temperature). Temperature is decreased over iterations.
+    """
+    current_solution = copy.deepcopy(initial_solution)
+    best_solution = copy.deepcopy(initial_solution)
+    current_cost = total_distance(current_solution, D_full)
+    best_cost = current_cost
+    temp = initial_temp
+    
+    for _ in range(max_iterations):
+        new_solution = neighbor(current_solution, Q, q)
+        new_cost = total_distance(new_solution, D_full)
+        delta = new_cost - current_cost
+        
+        if delta < 0 or random.random() < math.exp(-delta / temp):
+            current_solution = new_solution
+            current_cost = new_cost
+            if current_cost < best_cost:
+                best_solution = copy.deepcopy(current_solution)
+                best_cost = current_cost
+        
+        temp *= cooling_rate
+        if temp < 1e-3:
+            break
+    
+    return best_solution
+
 def check(routes, n, Q, D_full, q):
     """
-    Validates that:
-      - Each route starts and ends at the depot (node 0).
-      - The total demand on each route does not exceed Q.
+    Validates the solution:
+      - Each route starts and ends at depot (node 0).
+      - Total demand per route does not exceed Q.
       - Every customer (nodes 1 to n-1) is visited exactly once.
     """
     visited = set()
     for route in routes:
+        if route[0] != 0 or route[-1] != 0 or len(route) < 3:
+            return False
         total_demand = sum(q[i] for i in route if i != 0)
         if total_demand > Q:
-            return False
-        if route[0] != 0 or route[-1] != 0 or len(route) < 3:
             return False
         visited.update(i for i in route if i != 0)
     if visited != set(range(1, n)):
@@ -96,12 +187,14 @@ def check(routes, n, Q, D_full, q):
 
 def main():
     n, Q, D_full, q = read_input()
-    # Convert full distance matrix to a lower-triangular matrix.
+    # Use the lower-triangular matrix for the greedy solution.
     L = convert_to_lower_triangular(D_full)
-    routes = solve_cvrp_greedy(n, Q, L, q)
+    initial_solution = solve_cvrp_greedy(n, Q, L, q)
+    # Improve the solution using Simulated Annealing.
+    improved_solution = simulated_annealing(initial_solution, D_full, Q, q)
     
-    if check(routes, n, Q, D_full, q):
-        for route in routes:
+    if check(improved_solution, n, Q, D_full, q):
+        for route in improved_solution:
             print(" ".join(map(str, route)))
     else:
         print("Invalid solution", file=sys.stderr)
