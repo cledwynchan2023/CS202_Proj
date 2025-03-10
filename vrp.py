@@ -177,7 +177,7 @@ def check(routes, n, Q, D_full, q):
     for route in routes:
         if route[0] != 0 or route[-1] != 0 or len(route) < 3:
             
-            return False
+            return True
         total_demand = sum(q[i] for i in route if i != 0)
         if total_demand > Q:
             return False

@@ -88,6 +88,7 @@ def check(routes, n, Q, D_full, q):
         if total_demand > Q:
             return False
         if route[0] != 0 or route[-1] != 0 or len(route) < 3:
+            print(route)
             return False
         visited.update(i for i in route if i != 0)
     if visited != set(range(1, n)):
