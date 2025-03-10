@@ -88,8 +88,12 @@ def total_distance(routes, D_full):
 
 def neighbor(solution, Q, q):
     """
-    Generates a neighbor solution using a simple "relocate" move.
-    Ensures no [0,0] routes are created or maintained.
+    Generates a neighbor solution using a simple "relocate" move:
+      - Randomly select a route with at least one customer.
+      - Randomly remove one customer (not the depot) from that route.
+      - Attempt to reinsert that customer in a randomly chosen route (which can be the same)
+        at a random feasible position.
+    Returns a new solution (deep copy) that is feasible.
     """
     new_solution = copy.deepcopy(solution)
     
@@ -103,10 +107,6 @@ def neighbor(solution, Q, q):
     # Remove a random customer from route1 (not the depot at index 0 or last index)
     pos = random.randint(1, len(route1) - 2)
     customer = route1.pop(pos)
-    
-    # If route becomes [0,0], remove it completely
-    if len(route1) == 2:  # Only depot nodes remain
-        del new_solution[r1]
     
     # Try to insert the customer into a randomly chosen route.
     insertion_done = False
@@ -129,9 +129,9 @@ def neighbor(solution, Q, q):
         if insertion_done:
             break
     
-    # If insertion wasn't possible in any route, create a new route
+    # If insertion wasn't possible in any route, put the customer back to original position.
     if not insertion_done:
-        new_solution.append([0, customer, 0])
+        new_solution[r1].insert(pos, customer)
     
     return new_solution
 
