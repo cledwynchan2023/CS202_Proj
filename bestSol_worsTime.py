@@ -206,6 +206,7 @@ def main():
     if check(improved_solution, n, Q, D_full, q):
         for route in improved_solution:
             print(" ".join(map(str, route)))
+        print(total_distance(improved_solution,D_full))
     else:
         print("Invalid solution", file=sys.stderr)
 

@@ -88,45 +88,53 @@ def total_distance(routes, D_full):
     return total
 
 def neighbor(solution, Q, q):
+    """
+    Generates a neighbor solution using a simple "relocate" move:
+      - Randomly select a route with at least one customer.
+      - Randomly remove one customer (not the depot) from that route.
+      - Attempt to reinsert that customer in a randomly chosen route (which can be the same)
+        at a random feasible position.
+    Returns a new solution (deep copy) that is feasible.
+    """
     new_solution = copy.deepcopy(solution)
     
-    # Select donor route
-    donor_routes = [i for i, r in enumerate(new_solution) if len(r) > 2]
-    if not donor_routes:
+    # Choose a route that has at least one customer.
+    candidate_routes = [i for i, route in enumerate(new_solution) if len(route) > 2]
+    if not candidate_routes:
         return new_solution
-    r1 = random.choice(donor_routes)
-    route = new_solution[r1]
     
-    # Remove random customer
-    pos = random.randint(1, len(route)-2)
-    customer = route.pop(pos)
+    r1 = random.choice(candidate_routes)
+    route1 = new_solution[r1]
+    # Remove a random customer from route1 (not the depot at index 0 or last index)
+    pos = random.randint(1, len(route1) - 2)
+    customer = route1.pop(pos)
     
-    # Cleanup empty route immediately
-    if len(route) == 2:
-        del new_solution[r1]
-    else:
-        new_solution[r1] = route
+    # Try to insert the customer into a randomly chosen route.
+    insertion_done = False
+    route_indices = list(range(len(new_solution)))
+    random.shuffle(route_indices)
     
-    # Find insertion target
-    targets = [i for i, r in enumerate(new_solution) 
-              if sum(q[c] for c in r if c != 0) + q[customer] <= Q]
-    random.shuffle(targets)
-    
-    inserted = False
-    for r2 in targets:
-        for pos2 in range(1, len(new_solution[r2])):
-            new_route = new_solution[r2][:pos2] + [customer] + new_solution[r2][pos2:]
-            new_solution[r2] = new_route
-            inserted = True
+    for r2 in route_indices:
+        route2 = new_solution[r2]
+        # Try all possible insertion positions (between index 1 and len(route2))
+        for pos2 in range(1, len(route2)):
+            # Check capacity for route2.
+            current_capacity = sum(q[i] for i in route2 if i != 0)
+            if current_capacity + q[customer] <= Q:
+                # Insert the customer at position pos2.
+                new_route = route2[:pos2] + [customer] + route2[pos2:]
+                # Temporarily update route2.
+                new_solution[r2] = new_route
+                insertion_done = True
+                break
+        if insertion_done:
             break
-        if inserted:
-            break
     
-    # Create new route if needed
-    if not inserted:
-        new_solution.append([0, customer, 0])
+    # If insertion wasn't possible in any route, put the customer back to original position.
+    if not insertion_done:
+        new_solution[r1].insert(pos, customer)
     
-    return [route for route in new_solution if len(route) > 2]
+    return new_solution
 
 def check(routes, n, Q, D_full, q):
     """
@@ -300,6 +308,7 @@ def main():
     if check(final_solution, n, Q, D_full, q):
         for route in final_solution:
             print(" ".join(map(str, route)))
+        print(total_distance(final_solution,D_full))
     else:
         print("Invalid solution", file=sys.stderr)
 
