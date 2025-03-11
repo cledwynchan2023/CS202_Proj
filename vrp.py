@@ -159,7 +159,6 @@ def main():
     if check(routes, n, Q, D_full, q):
         for route in routes:
             print(" ".join(map(str, route)))
-        print(total_distance(routes,D_full))
     else:
         print("Invalid solution", file=sys.stderr)
 
